@@ -17,13 +17,15 @@
 
 ## Установка
 
-Требуется Python 3.8+.
+Требуется Python 3.9+.
 
 ```bash
-pip install face-recognition pillow opencv-python tqdm numpy
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt     # Linux/macOS
+.venv\Scripts\pip install -r requirements.txt # Windows
 ```
 
-> На Linux также могут понадобиться системные пакеты для `dlib`/`face_recognition` (например `build-essential cmake libboost-all-dev`). На Windows удобнее ставить через `pip install cmake` и официальный Visual Studio Build Tools.
+> `dlib` ставится как готовый wheel — компиляция из исходников не нужна. Модели берутся из форка `face-recognition-models-ng` (поддержка современных setuptools, без устаревшего `pkg_resources`).
 
 ## Запуск
 
@@ -94,6 +96,7 @@ find_results/
 | `findmyphoto.py` | GUI-версия с окном Tkinter, прогресс-баром и автоустановкой зависимостей |
 | `search_cli.py`  | Консольная версия с параметрами через `argparse` |
 | `search_core.py` | Общая логика поиска (используется обоими интерфейсами) |
+| `requirements.txt` | Зафиксированные зависимости (включая `face-recognition-models-ng`) |
 | `photos_to_search/` | Пример папки с фотографиями для поиска |
 | `my_reference_photo.jpg` | Пример опорного фото |
 
