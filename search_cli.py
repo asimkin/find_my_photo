@@ -1,92 +1,60 @@
 #!/usr/bin/env python3
-"""Optimized face search: resize 600px + small model => ~4x faster."""
-import os, sys, shutil, time
-from pathlib import Path
-import face_recognition
-import numpy as np
-from PIL import Image
-from tqdm import tqdm
+"""Поиск фотографий по лицу из командной строки."""
+import argparse
+import sys
 
-PHOTOS_FOLDER = r"photos_to_search"
-REFERENCE_PHOTO = r"my_reference_photo.jpg"
-TOLERANCE = 0.6
-OUTPUT_FOLDER = os.path.join("photos_to_search", "find_results")
-MAX_SIDE = 600
+from search_core import find_photos
 
-print("Loading reference photo...")
-ref_image = face_recognition.load_image_file(REFERENCE_PHOTO)
-ref_encodings = face_recognition.face_encodings(ref_image, num_jitters=10, model="small")
-if not ref_encodings:
-    print("ERROR: no face found in reference photo")
-    sys.exit(1)
-target_encoding = ref_encodings[0]
-print(f"Reference loaded. Model: small, num_jitters=10")
+ERROR_MESSAGES = {
+    "no_face_in_reference": "На опорном фото не найдено лиц. Проверь, чтобы человек был хорошо виден.",
+    "no_photos": "В указанной папке не найдено фотографий.",
+}
 
-photo_files = [
-    f for f in Path(PHOTOS_FOLDER).rglob("*.*")
-    if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".gif", ".bmp"]
-    and "find_results" not in str(f)
-]
-print(f"Photos to scan: {len(photo_files)}")
 
-matches = []
-start_time = time.time()
+def main():
+    parser = argparse.ArgumentParser(
+        description="Находит все фотографии, на которых есть человек с опорного фото."
+    )
+    parser.add_argument("photos", nargs="?", default="photos_to_search",
+                        help="Папка с фотографиями для поиска")
+    parser.add_argument("--reference", "-r", default="my_reference_photo.jpg",
+                        help="Опорное фото с лицом")
+    parser.add_argument("--tolerance", "-t", type=float, default=0.6,
+                        help="Чувствительность поиска (меньше = строже)")
+    parser.add_argument("--top", type=int, default=100,
+                        help="Сколько лучших совпадений сохранить")
+    parser.add_argument("--workers", "-w", type=int, default=None,
+                        help="Кол-во процессов (по умолчанию авт., 1 = без параллелизма)")
+    parser.add_argument("--jitters", "-j", type=int, default=3,
+                        help="Точность энкодинга опорного фото (0-10, больше = медленнее)")
+    parser.add_argument("--max-side", type=int, default=600,
+                        help="Максимальная сторона фото при обработке, px")
+    args = parser.parse_args()
 
-for photo_path in tqdm(photo_files, desc="Scanning"):
-    try:
-        pil = Image.open(photo_path)
-        pil.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
-        img = np.array(pil)
-        del pil
+    result = find_photos(
+        args.photos,
+        args.reference,
+        tolerance=args.tolerance,
+        max_side=args.max_side,
+        num_jitters=args.jitters,
+        workers=args.workers,
+        top_n=args.top,
+    )
 
-        encodings = face_recognition.face_encodings(img, num_jitters=0, model="small")
-        if not encodings:
-            continue
+    if "error" in result:
+        print(ERROR_MESSAGES[result["error"]])
+        return 1
 
-        for i, enc in enumerate(encodings):
-            distance = face_recognition.face_distance([target_encoding], enc)[0]
-            if distance < TOLERANCE:
-                matches.append({
-                    "path": photo_path,
-                    "distance": float(distance),
-                    "faces_count": len(encodings),
-                    "face_index": i,
-                })
-                break
-    except Exception:
-        pass
-    del img
+    matches = result["matches"]
+    print(f"\nMatches found: {len(matches)}")
+    if matches:
+        print(f"Best distance: {matches[0]['distance']:.4f}")
+    print(f"Photos scanned: {result['unique']} unique (of {result['total']})")
+    print(f"Elapsed: {result['elapsed']:.1f}s")
+    print(f"Top matches copied: {result['copied']}")
+    print(f"Results saved to: {result['output_folder']}")
+    return 0
 
-elapsed = time.time() - start_time
-matches.sort(key=lambda x: x["distance"])
 
-print(f"\nScan complete in {elapsed/60:.1f} min ({elapsed/len(photo_files)*1000:.0f}ms/photo)")
-print(f"Matches found: {len(matches)}")
-if matches:
-    print(f"Best distance: {matches[0]['distance']:.4f}")
-
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-with open(os.path.join(OUTPUT_FOLDER, "results.txt"), "w", encoding="utf-8") as f:
-    f.write("SEARCH RESULTS\n")
-    f.write("=" * 80 + "\n\n")
-    f.write(f"Total matches: {len(matches)}\n")
-    f.write(f"Tolerance: {TOLERANCE}\n\n")
-    for idx, m in enumerate(matches[:100]):
-        confidence = (1 - m["distance"]) * 100
-        f.write(f"{idx+1}. {m['path'].name}\n")
-        f.write(f"   Confidence: {confidence:.1f}%\n")
-        f.write(f"   Distance: {m['distance']:.4f}\n")
-        f.write(f"   Path: {m['path']}\n\n")
-
-if matches:
-    top_folder = os.path.join(OUTPUT_FOLDER, "top_matches")
-    os.makedirs(top_folder, exist_ok=True)
-    for i, m in enumerate(matches[:100]):
-        try:
-            shutil.copy(m["path"], os.path.join(top_folder, f"{i+1:03d}_{m['path'].name}"))
-        except Exception:
-            pass
-    print(f"Top {min(100, len(matches))} photos copied to {top_folder}")
-
-print(f"Results saved to {OUTPUT_FOLDER}")
-print("SEARCH COMPLETE")
+if __name__ == "__main__":
+    sys.exit(main())
