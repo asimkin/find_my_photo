@@ -144,9 +144,9 @@ def _scan_parallel(photo_files, ref_encodings, tolerance, max_side, workers, pro
     return matches, with_faces, skipped
 
 
-def save_results(photos_folder, matches, tolerance, top_n, stats):
+def save_results(photos_folder, matches, tolerance, top_n, stats, output_dir=None):
     """Пишет results.txt и копирует топ-совпадения. Возвращает (папка, скопировано)."""
-    out_dir = os.path.join(os.path.abspath(photos_folder), RESULT_DIR_NAME)
+    out_dir = output_dir or os.path.join(os.path.abspath(photos_folder), RESULT_DIR_NAME)
     os.makedirs(out_dir, exist_ok=True)
 
     with open(os.path.join(out_dir, "results.txt"), "w", encoding="utf-8") as f:
@@ -182,10 +182,14 @@ def save_results(photos_folder, matches, tolerance, top_n, stats):
 
 
 def find_photos(photos_folder, reference_photo, tolerance=0.6, max_side=600,
-                num_jitters=3, workers=None, top_n=100, progress_callback=None):
+                num_jitters=3, workers=None, top_n=100, output_dir=None,
+                dedup=True, progress_callback=None):
     """Основной поиск. Возвращает dict со статистикой или {"error": ...}."""
     photos_folder = os.fspath(photos_folder)
     reference_photo = os.fspath(reference_photo)
+
+    if not os.path.isdir(photos_folder):
+        return {"error": "folder_not_found"}
 
     start = time.time()
 
@@ -200,16 +204,18 @@ def find_photos(photos_folder, reference_photo, tolerance=0.6, max_side=600,
     if total == 0:
         return {"error": "no_photos"}
 
-    # Дедупликация одинаковых фотографий (копий) по md5
-    seen = set()
-    unique = []
-    for f in photo_files:
-        digest = _file_md5(f)
-        if digest in seen:
-            continue
-        seen.add(digest)
-        unique.append(f)
-    photo_files = unique
+    # Дедупликация одинаковых фотографий (копий) по md5.
+    # На медленных дисках (например /mnt в WSL) полное чтение файлов дорого — можно отключить.
+    if dedup:
+        seen = set()
+        unique = []
+        for f in photo_files:
+            digest = _file_md5(f)
+            if digest in seen:
+                continue
+            seen.add(digest)
+            unique.append(f)
+        photo_files = unique
     total_unique = len(photo_files)
 
     if workers in (None, 1):
@@ -236,7 +242,7 @@ def find_photos(photos_folder, reference_photo, tolerance=0.6, max_side=600,
         "elapsed": time.time() - start,
     }
 
-    out_dir, copied = save_results(photos_folder, matches, tolerance, top_n, stats)
+    out_dir, copied = save_results(photos_folder, matches, tolerance, top_n, stats, output_dir)
 
     return {
         "matches": matches,

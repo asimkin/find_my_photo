@@ -10,6 +10,7 @@ __pycache__/
 
 # Результаты поиска
 find_results/
+find_results_avito/
 
 # Личные фотографии (опорные фото и папка для поиска)
 photos_to_search/
